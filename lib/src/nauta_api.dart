@@ -1,47 +1,26 @@
-import 'package:dio/dio.dart';
-import 'package:dio_cookie_manager/dio_cookie_manager.dart';
-import 'package:cookie_jar/cookie_jar.dart';
 import 'package:beautifulsoup/beautifulsoup.dart';
+import 'package:requests/requests.dart';
 
 import 'package:nauta_api/src/utils/exceptions.dart';
 
-import '../nauta_api.dart';
-
 class SessionObject {
-  String login_action;
+  String loginAction;
   String csrfhw;
   String wlanuserip;
-  String attribute_uuid;
+  String attributeUuid;
 
-  Dio requests_session;
-  CookieJar requests_session_cookie;
-
-  SessionObject({
-    this.login_action,
-    this.csrfhw,
-    this.wlanuserip,
-  }) {
-    create_requests_session();
-  }
-
-  void create_requests_session() {
-    requests_session = Dio();
-    requests_session_cookie = CookieJar();
-    requests_session.interceptors.add(CookieManager(requests_session_cookie));
-  }
-
-  bool is_logged_in() {
-    return (attribute_uuid != null);
+  bool isLoggedIn() {
+    return (attributeUuid != null);
   }
 }
 
 class NautaProtocol {
-  static final CHECK_PAGE = "http://www.cubadebate.cu";
+  static const CHECK_PAGE = "http://www.cubadebate.cu";
 
   static SessionObject session;
 
-  static Map<String, String> _get_inputs(Beautifulsoup form_soup) {
-    var inputs = form_soup.find_all('input');
+  static Map<String, String> _getInputs(Beautifulsoup formSoup) {
+    var inputs = formSoup.find_all('input');
 
     var data = Map<String, String>();
 
@@ -53,19 +32,19 @@ class NautaProtocol {
     return data;
   }
 
-  static Future<bool> is_connected() async {
-    var r = await Dio().get(CHECK_PAGE);
+  static Future<bool> isConnected() async {
+    var r = await Requests.get(CHECK_PAGE);
 
-    return !(r.data.toString().contains('secure.etecsa.net'));
+    return !(r.content().contains('secure.etecsa.net'));
   }
 
-  static bool is_logged_in() {
-    return (session != null && session.is_logged_in());
+  static bool isLoggedIn() {
+    return (session != null && session.isLoggedIn());
   }
 
-  static Future<SessionObject> create_session() async {
-    if (await is_connected()) {
-      if (is_logged_in()) {
+  static Future<SessionObject> createSession() async {
+    if (await isConnected()) {
+      if (isLoggedIn()) {
         throw NautaPreLoginException("Hay una session abierta");
       } else {
         throw NautaPreLoginException("Hay una conexion activa");
@@ -74,25 +53,24 @@ class NautaProtocol {
 
     session = SessionObject();
 
-    var resp = await session.requests_session.get('http://1.1.1.1/');
+    var resp = await Requests.get('http://1.1.1.1/');
 
     if (resp.statusCode != 200) {
       throw NautaPreLoginException('Failed to create session');
     }
 
-    var soup = Beautifulsoup(resp.data);
+    var soup = Beautifulsoup(resp.content());
     var action = soup('form').attributes['action'];
-    var data = _get_inputs(soup);
+    var data = _getInputs(soup);
 
     // Now go to the login page
-    resp = await session.requests_session.post(action,
-        data: data,
-        options: Options(contentType: Headers.formUrlEncodedContentType));
+    resp = await Requests.post(action,
+        body: data, bodyEncoding: RequestBodyEncoding.FormURLEncoded);
 
-    soup = Beautifulsoup(resp.data);
+    soup = Beautifulsoup(resp.content());
 
-    session.login_action = soup.find_all('form')[1].attributes['action'];
-    data = _get_inputs(soup);
+    session.loginAction = soup.find_all('form')[1].attributes['action'];
+    data = _getInputs(soup);
 
     session.csrfhw = data['CSRFHW'];
     session.wlanuserip = data['wlanuserip'];
@@ -102,22 +80,20 @@ class NautaProtocol {
 
   static Future<String> login(
       SessionObject session, String username, String password) async {
-    print(session.login_action);
-
-    var r = await session.requests_session.post(session.login_action,
-        data: {
+    var r = await Requests.post(session.loginAction,
+        body: {
           "CSRFHW": session.csrfhw,
           "wlanuserip": session.wlanuserip,
           "username": username,
           "password": password
         },
-        options: Options(contentType: Headers.formUrlEncodedContentType));
+        bodyEncoding: RequestBodyEncoding.FormURLEncoded);
 
-    print(r.data);
-    print(session.requests_session_cookie
-        .loadForRequest(Uri.parse('https://secure.etecsa.net:8443/')));
-    print(r.statusMessage);
     print(r.statusCode);
+    print(r.headers);
+    r.raiseForStatus();
+    print(r.content());
+    print(r.url);
 
     return 'lalalalala';
   }
@@ -130,19 +106,19 @@ class NautaClient {
 
   NautaClient({this.user, this.password});
 
-  void init_session() async {
-    session = await NautaProtocol.create_session();
+  Future<void> initSession() async {
+    session = await NautaProtocol.createSession();
   }
 
-  bool is_logged_in() {
-    return NautaProtocol.is_logged_in();
+  bool isLoggedIn() {
+    return NautaProtocol.isLoggedIn();
   }
 
-  void login() async {
+  Future<void> login() async {
     if (session == null) {
-      await init_session();
+      await initSession();
     }
 
-    session.attribute_uuid = await NautaProtocol.login(session, user, password);
+    session.attributeUuid = await NautaProtocol.login(session, user, password);
   }
 }
